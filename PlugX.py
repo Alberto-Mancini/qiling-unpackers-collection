@@ -1,449 +1,447 @@
 # -*- coding: utf-8 -*-
 import os
 import sys
-import re
 import random
-
 from qiling import Qiling
 from qiling.const import QL_VERBOSE
-from qiling.os.windows.fncc import winsdkapi, STDCALL, CDECL
-from qiling.os.windows.api import DWORD, POINTER, LPCWSTR, HMODULE, POINTER, LPSTR, HANDLE
+from qiling.os.windows.api import *
+from qiling.os.windows.fncc import *
 
 # ==========================================
-# HOOKS DI BASE E BYPASS ANTI-DEBUG/SANDBOX
+# CONFIGURAZIONE COMPORTAMENTO
 # ==========================================
-
-global_tick = 0x1000
-
-
-@winsdkapi(cc=STDCALL, params={"lpLibFileName": POINTER})
-def hook_LoadLibraryA(ql, address, params):
-    try:
-        lpLibFileName = params["lpLibFileName"]
-        dll_name = ql.mem.string(lpLibFileName)
-        print(f"[@][ATTENZIONE][API] LoadLibraryA: {dll_name}")
-    except Exception:
-        pass
-
-
-@winsdkapi(cc=STDCALL, params={"lpLibFileName": LPCWSTR})
-def hook_LoadLibraryW(ql, address, params):
-    try:
-        lpLibFileName = params["lpLibFileName"]
-        dll_name = ql.mem.string(lpLibFileName, encoding="utf-16-le")
-        print(f"[@][ATTENZIONE][API] LoadLibraryW: {dll_name}")
-    except Exception:
-        pass
-
-
-@winsdkapi(cc=STDCALL, params={"lpFileName": POINTER})
-def hook_CreateFileA(ql, address, params):
-    try:
-        lpFileName = params["lpFileName"]
-        file_name = ql.mem.string(lpFileName)
-        print(f"[@][ATTENZIONE][API] CreateFileA: {file_name}")
-    except Exception:
-        pass
-    return 0x4000
-
-
-@winsdkapi(cc=STDCALL, params={"lpFileName": POINTER})
-def hook_CreateFileW(ql, address, params):
-    try:
-        lpFileName = params["lpFileName"]
-        file_name = ql.mem.string(lpFileName, encoding="utf-16-le")
-        print(f"[@][ATTENZIONE][API] CreateFileW: {file_name}")
-    except Exception:
-        pass
-    return 0x4000
+SIMULA_UTENTE_REALE = True
+GET_TICK_REALISTIC = True
+GET_CURSOR_REALISTIC = True
+GET_WINDOW_REALISTIC = True
+GET_COMPUTER_NAME_REALISTIC = True
+GET_VOLUME_INFORMATION_REALISTIC = True
 
 # ==========================================
-# HOOK: Anti-debugging/sandboxing
+# CONFIGURAZIONE TRACCIAMENTO ASSEMBLY
 # ==========================================
+TRACCIA_ASSEMBLY = True  # Imposta a True per accendere il tracciatore
 
-@winsdkapi(cc=STDCALL, params={})
-def hook_GetTickCount(ql, address, params):
-    global global_tick
-    global_tick += 5000
-    return global_tick
+# Filtri (per evitare che il terminale esploda di milioni di righe inutili)
+# Se lasci 0x0 e 0xFFFFFFFF traccerà tutto.
+INDIRIZZO_MIN = 0x4012e0  # Partiamo un po' prima della prima chiamata
+INDIRIZZO_MAX = 0x4012f2  # Finiamo un bel po' dopo la seconda chiamata
 
+# Quali istruzioni vogliamo spiare? (Vuoto [] = tutte)
+ISTRUZIONI_TARGET = [] 
 
-@winsdkapi(cc=STDCALL, params={"dwMilliseconds": DWORD})
-def hook_Sleep(ql, address, params):
-    return 0
+class AntiEvasion:
+    def __init__(self):
+        self.tick = 0x1000
+        self.cursor_x = 500
+        self.cursor_y = 500
+        self.window_handle = 0x10000
+        self.tempo_in_sospeso = 0
 
+    def get_tick(self):
+        print("\n" + "="*60)
+        print("🕒 [DEBUG TEMPO] AGGIORNAMENTO OROLOGIO INTERNO (get_tick)")
+        print("="*60)
+        print(f" [*] Uptime corrente prima della richiesta : {self.tick} ms")
+        
+        if SIMULA_UTENTE_REALE and GET_TICK_REALISTIC:
+            print(f" [*] [Modalita' Realistica ON] Aggiungo 50 ms (simulazione CPU)")
+            if self.tempo_in_sospeso > 0:
+                print(f" [*] [Modalita' Realistica ON] Aggiungo in blocco {self.tempo_in_sospeso} ms (salvati dagli Sleep)")
+            else:
+                print(f" [*] Nessun tempo in sospeso da sommare.")
+            
+            self.tick += 50
+            self.tick += self.tempo_in_sospeso
+            self.tempo_in_sospeso = 0 
+            
+        else:
+            print(f" [*] [Modalita' Realistica OFF] PROVOCAZIONE: Il tempo rimane fermo e congelato a {self.tick} ms.")
+            self.tick += 0
+            
+        print(f" [+] RISULTATO FINALE: Uptime che verra' restituito = {self.tick} ms")
+        print("="*60 + "\n")
+            
+        return self.tick
+
+    def get_cursor(self):
+        if SIMULA_UTENTE_REALE and GET_CURSOR_REALISTIC:
+            self.cursor_x += random.randint(-15, 15)
+            self.cursor_y += random.randint(-15, 15)
+            return (self.cursor_x, self.cursor_y)
+        else:
+            return (0, 0)
+            
+    def get_window(self):
+        if SIMULA_UTENTE_REALE and GET_WINDOW_REALISTIC:
+            self.window_handle += 4
+            return self.window_handle
+        else:
+            return 0
+
+    def get_computer_name(self):
+        if SIMULA_UTENTE_REALE and GET_COMPUTER_NAME_REALISTIC:
+            return b"DESKTOP-OFFICE\x00"
+        else:
+            return b"CUCKOO-PC\x00"
+            
+    def get_volume_serial(self):
+        if SIMULA_UTENTE_REALE and GET_VOLUME_INFORMATION_REALISTIC:
+            return 0x9A2B3C4D
+        else:
+            return 0xDEADBEEF
+    
+anti_evasion = AntiEvasion()
+
+# ==========================================
+# TRACCIATORE ASSEMBLY DINAMICO
+# ==========================================
+def hook_code_assembly(ql, address, size):
+    if not (INDIRIZZO_MIN <= address <= INDIRIZZO_MAX):
+        return
+
+    try:
+        buf = ql.mem.read(address, size)
+        for i in ql.arch.disassembler.disasm(buf, address):
+            mnemonic = i.mnemonic.lower()
+            
+            if len(ISTRUZIONI_TARGET) > 0 and mnemonic not in ISTRUZIONI_TARGET:
+                return
+                
+            print(f"[ASM] 0x{address:X}:\t{i.mnemonic.ljust(6)} {i.op_str}")
+            
+            if mnemonic in ["cmp", "sub", "test"]:
+                try:
+                    eax = getattr(ql.arch.regs, 'eax', 0)
+                    ebx = getattr(ql.arch.regs, 'ebx', 0)
+                    ecx = getattr(ql.arch.regs, 'ecx', 0)
+                    edx = getattr(ql.arch.regs, 'edx', 0)
+                    print(f"      ---> [REGISTRI CPU] EAX: {hex(eax)} | EBX: {hex(ebx)} | ECX: {hex(ecx)} | EDX: {hex(edx)}")
+                except:
+                    pass 
+    except Exception:
+        pass 
+
+# ==========================================
+# INTERAZIONE UTENTE (VERI ANTI-VM)
+# ==========================================
+@winsdkapi(cc=STDCALL, params={'lpPoint': POINTER})
+def hook_GetCursorPos(ql, address, params):
+    x, y = anti_evasion.get_cursor()
+    print(f"\n[ANTI-VM/USER] 🖱️ GetCursorPos richiesto -> Rispondo con (X: {x}, Y: {y})")
+    ql.mem.write(params['lpPoint'], x.to_bytes(4, 'little', signed=True) + y.to_bytes(4, 'little', signed=True))
+    return 1 # TRUE
 
 @winsdkapi(cc=STDCALL, params={})
 def hook_GetForegroundWindow(ql, address, params):
+    hwnd = anti_evasion.get_window()
+    print(f"\n[ANTI-VM/USER] 🪟 GetForegroundWindow richiesto -> Fornito HWND fittizio: {hex(hwnd)}")
+    return hwnd
+
+# ==========================================
+# GESTIONE TEMPO (VERI ANTI-VM)
+# ==========================================
+@winsdkapi(cc=STDCALL, params={'dwMilliseconds': DWORD})
+def hook_Sleep(ql, address, params):
+    tempo_richiesto = params['dwMilliseconds']
+    anti_evasion.tempo_in_sospeso += tempo_richiesto
+    
+    print("\n" + "="*60)
+    print("⏱️ [DEBUG TEMPO] RILEVATO TENTATIVO DI PAUSA (Sleep)")
+    print("="*60)
+    print(f" [*] Il malware ha richiesto di aspettare per : {tempo_richiesto} ms")
+    print(f" [+] L'esecuzione NON verra' interrotta. La funzione Sleep viene bypassata.")
+    print(f" [+] Il valore di {tempo_richiesto} ms e' stato salvato in memoria.")
+    print(f" [*] Totale accumulato in sospeso attuale   : {anti_evasion.tempo_in_sospeso} ms")
+    print("     (Questo valore verra' sommato all'orologio al prossimo GetTickCount)")
+    print("="*60 + "\n")
+    
     return 0
 
+@winsdkapi(cc=STDCALL, params={})
+def hook_GetTickCount(ql, address, params):
+    print("\n[ANTI-VM/TIMING] 🕒 Il malware ha chiamato GetTickCount. Calcolo in corso...")
+    t = anti_evasion.get_tick()
+    print(f"[ANTI-VM/TIMING] 🕒 GetTickCount completato -> Restituisco al malware: {t} ms")
+    return t
 
-@winsdkapi(cc=STDCALL, params={"lpPoint": POINTER})
-def hook_GetCursorPos(ql, address, params):
+@winsdkapi(cc=STDCALL, params={'lpPerformanceCount': POINTER})
+def hook_QueryPerformanceCounter(ql, address, params):
+    print("\n[ANTI-VM/TIMING] 🕒 Il malware ha chiamato QueryPerformanceCounter. Calcolo in corso...")
+    t = anti_evasion.get_tick()
+    print(f"[ANTI-VM/TIMING] 🕒 QueryPerformanceCounter completato -> Restituisco al malware: {t} ms")
+    ql.mem.write(params['lpPerformanceCount'], t.to_bytes(8, 'little'))
+    return 1 # TRUE
 
-    print(f"GetCursorPos chiamata da {hex(address)}")
-    lpPoint = params["lpPoint"]
+# ==========================================
+# ANTI-DEBUGGING (VERI ANTI-ANALISI)
+# ==========================================
+@winsdkapi(cc=STDCALL, params={})
+def hook_IsDebuggerPresent(ql, address, params):
+    res = 0 if SIMULA_UTENTE_REALE else 1
+    print(f"\n[ANTI-DEBUG] 🐛 IsDebuggerPresent chiamato -> Ritorno: {res} (0 = Nessun debugger)")
+    return res
 
-#    if lpPoint:
-#        x = (500).to_bytes(4, byteorder='little', signed=True)
-#        y = (300).to_bytes(4, byteorder='little', signed=True)
+@winsdkapi(cc=STDCALL, params={'hProcess': HANDLE, 'pbDebuggerPresent': POINTER})
+def hook_CheckRemoteDebuggerPresent(ql, address, params):
+    res = 0 if SIMULA_UTENTE_REALE else 1
+    print(f"\n[ANTI-DEBUG] 🐛 CheckRemoteDebuggerPresent chiamato -> Imposto la risposta a: {bool(res)}")
+    ql.mem.write(params['pbDebuggerPresent'], res.to_bytes(1, 'little'))
+    return 1 # TRUE
 
-#        ql.mem.write(lpPoint, x)
-#        ql.mem.write(lpPoint + 4, y)
-
-    global global_tick
-    lpPoint = params["lpPoint"]
-    
-    if lpPoint:
-        x_val = random.randint(100, 1000).to_bytes(4, byteorder='little')
-        y_val = random.randint(100, 1000).to_bytes(4, byteorder='little')
-        ql.mem.write(lpPoint, x_val)
-        ql.mem.write(lpPoint + 4, y_val)
-
+# ==========================================
+# PROFILAZIONE DEL SISTEMA (NON ANTI-VM)
+# ==========================================
+@winsdkapi(cc=STDCALL, params={'nIndex': DWORD})
+def hook_GetSystemMetrics(ql, address, params):
+    index = params['nIndex']
+    if index == 0: # SM_CXSCREEN
+        val = 1920 if SIMULA_UTENTE_REALE else 800
+        print(f"\n[PROFILING/ENV] 🖥️ GetSystemMetrics(Risoluzione X) -> Restituisco: {val}")
+        return val
+    elif index == 1: # SM_CYSCREEN
+        val = 1080 if SIMULA_UTENTE_REALE else 600
+        print(f"\n[PROFILING/ENV] 🖥️ GetSystemMetrics(Risoluzione Y) -> Restituisco: {val}")
+        return val
     return 1
 
-def my_callback(ql):
-    regs = ql.arch.regs
-
-    print("=" * 40)
-    print("PC :", hex(regs.arch_pc))
-    print("EAX:", hex(regs.eax))
-    print("EBX:", hex(regs.ebx))
-    print("ECX:", hex(regs.ecx))
-    print("EDX:", hex(regs.edx))
-
-
-# ==========================================
-# HOOK: GetVolumeInformationA
-# ==========================================
-
 @winsdkapi(cc=STDCALL, params={
-    "lpRootPathName": POINTER,
-    "lpVolumeNameBuffer": LPSTR,
-    "nVolumeNameSize": DWORD,
-    "lpVolumeSerialNumber": POINTER,
-    "lpMaximumComponentLength": POINTER,
-    "lpFileSystemFlags": POINTER,
-    "lpFileSystemNameBuffer": LPSTR,
-    "nFileSystemNameSize": DWORD
+    'lpRootPathName': STRING,
+    'lpVolumeNameBuffer': POINTER,
+    'nVolumeNameSize': DWORD,
+    'lpVolumeSerialNumber': POINTER,
+    'lpMaximumComponentLength': POINTER,
+    'lpFileSystemFlags': POINTER,
+    'lpFileSystemNameBuffer': POINTER,
+    'nFileSystemNameSize': DWORD
 })
 def hook_GetVolumeInformationA(ql, address, params):
-    print(f"[@][ATTENZIONE][API] GetVolumeInformationA chiamata e bypassata")
+    root_path = params['lpRootPathName']
+    print(f"\n[PROFILING/INFO] 💾 GetVolumeInformationA. Il malware esplora il disco: {root_path}")
+    if params['lpVolumeSerialNumber'] != 0:
+        serial = anti_evasion.get_volume_serial()
+        ql.mem.write(params['lpVolumeSerialNumber'], serial.to_bytes(4, 'little'))
+        print(f" [*] Fornito Volume Serial Number: {hex(serial)}")
+    return 1 # TRUE
 
-    if params["lpVolumeNameBuffer"] and params["nVolumeNameSize"] > 0:
-        vol_name = b"System\x00"
-        size_to_write = min(len(vol_name), params["nVolumeNameSize"])
-        ql.mem.write(params["lpVolumeNameBuffer"], vol_name[:size_to_write])
-
-    if params["lpVolumeSerialNumber"]:
-        ql.mem.write(params["lpVolumeSerialNumber"], (0x12345678).to_bytes(4, byteorder='little'))
-
-    if params["lpMaximumComponentLength"]:
-        ql.mem.write(params["lpMaximumComponentLength"], (255).to_bytes(4, byteorder='little'))
-
-    if params["lpFileSystemFlags"]:
-        ql.mem.write(params["lpFileSystemFlags"], (0x00000002).to_bytes(4, byteorder='little'))
-
-    if params["lpFileSystemNameBuffer"] and params["nFileSystemNameSize"] > 0:
-        fs_name = b"NTFS\x00"
-        size_to_write = min(len(fs_name), params["nFileSystemNameSize"])
-        ql.mem.write(params["lpFileSystemNameBuffer"], fs_name[:size_to_write])
-
+@winsdkapi(cc=STDCALL, params={'lpBuffer': POINTER, 'lpnSize': POINTER})
+def hook_GetComputerNameA(ql, address, params):
+    comp_name = anti_evasion.get_computer_name()
+    ql.mem.write(params['lpBuffer'], comp_name)
+    ql.mem.write(params['lpnSize'], len(comp_name).to_bytes(4, 'little'))
+    print(f"\n[PROFILING/INFO] 💻 GetComputerNameA richiesto -> Fornito nome PC: {comp_name.decode().strip(chr(0))}")
     return 1
 
-@winsdkapi(cc=CDECL, params={'buffer': LPSTR, 'format': POINTER})
-def hook_sprintf_safe(ql, address, params):
-    buff = params['buffer']
-    format_ptr = params['format']
-
-    # 1. Lettura limitata (max 100 byte) per evitare il crash se manca il \x00
-    try:
-        fmt_bytes = ql.mem.read(format_ptr, 100)
-        fmt = fmt_bytes.split(b'\x00')[0].decode('utf-8', errors='ignore')
-        print(f"[@][ATTENZIONE][API] sprintf chiamata: formato '{fmt}'")
-    except Exception:
-        fmt = "%X"
-        print(f"[@][ATTENZIONE][API] sprintf: fallback stringa di formato")
-
-    # 2. Lettura sicura degli argomenti dallo stack (cdecl)
-    esp = ql.arch.regs.esp
-    args = []
-    try:
-        args = [
-            ql.mem.read_ptr(esp + 12),
-            ql.mem.read_ptr(esp + 16),
-            ql.mem.read_ptr(esp + 20)
-        ]
-    except Exception:
-        pass
-
-    arg_idx = 0
-
-    def replacer(match):
-        nonlocal arg_idx
-        if arg_idx >= len(args):
-            return ""
-        
-        val = args[arg_idx]
-        arg_idx += 1
-        spec = match.group(0)
-
-        try:
-            if 's' in spec:
-                if val == 0:
-                    return "(null)"
-                s_bytes = ql.mem.read(val, 200)  # Lettura stringa sicura limitata
-                return s_bytes.split(b'\x00')[0].decode('utf-8', errors='ignore')
-            elif 'x' in spec or 'X' in spec or 'd' in spec or 'i' in spec or 'u' in spec:
-                return spec % val
-            elif 'c' in spec:
-                return chr(val & 0xff)
-        except Exception:
-            pass
-            
-        return "0"
-
-    # 3. Formattazione e scrittura controllata
-    try:
-        res = re.sub(r'%[0-9]*[a-zA-Z]', replacer, fmt)
-        res_bytes = res.encode('utf-8') + b'\x00'
-        ql.mem.write(buff, res_bytes)
-        return len(res_bytes) - 1
-    except Exception as e:
-        safe_str = b"12345678\x00"
-        ql.mem.write(buff, safe_str)
-        return len(safe_str) - 1
-
-# ==========================================
-# HOOK: CheckTokenMembership (bypass amministratore)
-# ==========================================
-
-@winsdkapi(cc=STDCALL, params={
-    "TokenHandle": HANDLE, # Il toekn dell'utente è richiesto in HANDLE dalla documentazione ufficiale di Microsoft
-    "SidToCheck": POINTER,
-    "IsMember": POINTER
-})
-def hook_CheckTokenMembership(ql, address, params): 
-    print("[API] CheckTokenMembership bypassata: ti farò credere di essere Amministratore!")
-
-    # params["IsMember"] contiene l'indirizzo di memoria dove il malware si aspetta la risposta.
-    if params["IsMember"]:
-        # Scriviamo in quella memoria il valore 1 (TRUE) per dirgli "Sì, fai parte del gruppo"
-        ql.mem.write(params["IsMember"], (1).to_bytes(4, byteorder='little'))
-
-    # L'API ritorna 1 in caso l'operazione di check sia andata a buon fine
+@winsdkapi(cc=STDCALL, params={'lpBuffer': POINTER, 'pcbBuffer': POINTER})
+def hook_GetUserNameA(ql, address, params):
+    user_name = b"Admin\x00" if SIMULA_UTENTE_REALE else b"MalwareAnalyst\x00"
+    ql.mem.write(params['lpBuffer'], user_name)
+    ql.mem.write(params['pcbBuffer'], len(user_name).to_bytes(4, 'little'))
+    print(f"\n[PROFILING/INFO] 👤 GetUserNameA richiesto -> Fornito utente: {user_name.decode().strip(chr(0))}")
     return 1
 
 # ==========================================
-# HOOK: ExpandEnvironmentStringsA
+# COMPORTAMENTO (FILE, REGISTRO, MEMORIA, PRIVILEGI)
 # ==========================================
+@winsdkapi(cc=STDCALL, params={'TokenHandle': HANDLE, 'SidToCheck': LPVOID, 'IsMember': POINTER})
+def hook_CheckTokenMembership(ql, address, params):
+    is_admin = 1 if SIMULA_UTENTE_REALE else 0
+    print(f"\n[BEHAVIOR/PRIV] 🛡️ CheckTokenMembership (Privilegi di sistema). Diciamo al malware che Admin = {bool(is_admin)}")
+    ql.mem.write(params['IsMember'], is_admin.to_bytes(4, 'little'))
+    return 1 # TRUE
 
-@winsdkapi(cc=STDCALL, params={
-    "lpSrc": POINTER,
-    "lpDst": LPSTR,
-    "nSize": DWORD
-})
+@winsdkapi(cc=STDCALL, params={})
+def hook_IsUserAnAdmin(ql, address, params):
+    is_admin = 1 if SIMULA_UTENTE_REALE else 0
+    print(f"\n[BEHAVIOR/PRIV] 🛡️ IsUserAnAdmin chiamato. Ritorno: {bool(is_admin)}")
+    return is_admin
+
+@winsdkapi(cc=STDCALL, params={'lpSrc': STRING, 'lpDst': POINTER, 'nSize': DWORD})
 def hook_ExpandEnvironmentStringsA(ql, address, params):
-    src = ql.mem.string(params["lpSrc"])
-    print(f"[API] ExpandEnvironmentStringsA: Risolvo il percorso per {src}")
+    src = params['lpSrc']
+    print(f"\n[BEHAVIOR/ENV] 📝 Espansione variabili d'ambiente richiesta per: {src}")
+    expanded = b"C:\\Users\\Admin\\AppData\\Local\\Temp\x00"
+    if params['lpDst'] != 0:
+        ql.mem.write(params['lpDst'], expanded[:params['nSize']])
+    return len(expanded)
 
-    # Sostituiamo le variabili più usate dai malware con percorsi fasulli
-    res = src.upper()
-    res = res.replace("%APPDATA%", "C:\\Users\\Admin\\AppData\\Roaming")
-    res = res.replace("%TEMP%", "C:\\Users\\Admin\\AppData\\Local\\Temp")
-    res = res.replace("%USERPROFILE%", "C:\\Users\\Admin")
-    res = res.replace("%WINDIR%", "C:\\Windows")
-    res = res.replace("%SYSTEMROOT%", "C:\\Windows")
+@winsdkapi(cc=STDCALL, params={'hKey': HANDLE, 'lpSubKey': STRING, 'ulOptions': DWORD, 'samDesired': DWORD, 'phkResult': POINTER})
+def hook_RegOpenKeyExA(ql, address, params):
+    subkey = params['lpSubKey']
+    if subkey:
+        print(f"\n[BEHAVIOR/REGISTRO] 🔑 Tentativo di accesso alla chiave: {subkey}")
+        if any(x in subkey.lower() for x in ["vmware", "vbox", "virtualbox", "wine"]):
+            print(f" [!] ATTENZIONE: Il malware sta cercando tracce di Macchine Virtuali nel registro!")
+            if not SIMULA_UTENTE_REALE:
+                return 0 
+    return 2 # ERROR_FILE_NOT_FOUND
 
-    res_bytes = res.encode('utf-8') + b'\x00'
+@winsdkapi(cc=STDCALL, params={'lpFileName': STRING, 'dwDesiredAccess': DWORD, 'dwShareMode': DWORD, 'lpSecurityAttributes': LPVOID, 'dwCreationDisposition': DWORD, 'dwFlagsAndAttributes': DWORD, 'hTemplateFile': HANDLE})
+def hook_CreateFileA(ql, address, params):
+    file_name = params['lpFileName']
+    if file_name:
+        print(f"\n[BEHAVIOR/FILE] 📁 CreateFileA su: {file_name}")
+        if any(x in file_name.lower() for x in ["vbox", "vmware", "vmmouse", "vmtoolsd"]):
+             print(f" [!] ATTENZIONE: Il malware cerca driver tipici delle VM ({file_name})!")
+    return 0
 
-    # Se il buffer destinazione esiste ed è abbastanza grande, ci scriviamo dentro
-    if params["lpDst"] and params["nSize"] >= len(res_bytes):
-        ql.mem.write(params["lpDst"], res_bytes)
-        return len(res_bytes)
+@winsdkapi(cc=STDCALL, params={'lpAddress': LPVOID, 'dwSize': SIZE_T, 'flAllocationType': DWORD, 'flProtect': DWORD})
+def hook_VirtualAlloc(ql, address, params):
+    size = params['dwSize']
+    prot = params['flProtect']
+    prot_str = "PAGE_EXECUTE_READWRITE" if prot == 0x40 else hex(prot)
+    print(f"\n[BEHAVIOR/MEMORIA] 🧠 VirtualAlloc chiamato. Il malware alloca memoria: Dim={hex(size)}, Protezione={prot_str}")
+    return 0
 
-    # Ritorna la grandezza necessaria
-    return len(res_bytes)
-
-
- # ==========================================
-# HOOK: RtlInitAnsiStringEx
-# ==========================================
-@winsdkapi(cc=STDCALL, params={
-    "DestinationString": POINTER,
-    "SourceString": POINTER
-})
-def hook_RtlInitAnsiStringEx(ql, address, params):
-    src_ptr = params["SourceString"]
-    dst_ptr = params["DestinationString"]
-
-    if src_ptr == 0:
-        # Se la stringa è vuota, azzeriamo la struttura (8 byte di zeri)
-        ql.mem.write(dst_ptr, b'\x00' * 8)
-    else:
-        src = ql.mem.string(src_ptr)
-        print(f"[API] RtlInitAnsiStringEx chiamata per: {src}")
-        length = len(src)
-
-        # Una ANSI_STRING è una struttura in C composta da 8 byte:
-        # [2 byte: Lunghezza] [2 byte: MaxLunghezza] [4 byte: Puntatore al testo]
-        ql.mem.write(dst_ptr, length.to_bytes(2, byteorder='little'))
-        ql.mem.write(dst_ptr + 2, (length + 1).to_bytes(2, byteorder='little'))
-        ql.mem.write(dst_ptr + 4, src_ptr.to_bytes(4, byteorder='little'))
-
-    return 0 # 0 equivale a STATUS_SUCCESS in Windows
-
-# ==========================================
-# HOOK: CreateDirectory
-# ==========================================
-@winsdkapi(cc=STDCALL, params={
-    "lpPathName": POINTER,
-    "lpSecurityAttributes": POINTER
-})
-def hook_CreateDirectoryA(ql, address, params):
-    path_ptr = params["lpPathName"]
-    if path_ptr:
-        path = ql.mem.string(path_ptr)
-        print(f"[API] CreateDirectoryA bypassata. Il malware crede di aver creato: {path}")
-
-    # 1 significa TRUE/Successo in Windows
-    return 1
-
-@winsdkapi(cc=STDCALL, params={
-    "lpPathName": POINTER,
-    "lpSecurityAttributes": POINTER
-})
-def hook_CreateDirectoryW(ql, address, params):
-    path_ptr = params["lpPathName"]
-    if path_ptr:
-        # La versione W usa l'encoding utf-16-le
-        path = ql.mem.string(path_ptr, encoding="utf-16-le")
-        print(f"[API] CreateDirectoryW bypassata. Il malware crede di aver creato: {path}")
-
-    return 1
-
-
-
-# ==========================================
-# HOOKS: Gestione File in C (fopen, fwrite, fclose)
-# ==========================================
-
-@winsdkapi(cc=CDECL, params={
-    "filename": POINTER,
-    "mode": POINTER
-})
-def hook_fopen(ql, address, params):
-    fname_ptr = params["filename"]
-    if fname_ptr:
-        fname = ql.mem.string(fname_ptr)
-        print(f"[API] fopen bypassata. Finto file aperto: '{fname}'")
-
-    # Restituiamo un finto puntatore FILE*
-    return 0x8888
-
-@winsdkapi(cc=CDECL, params={
-    "filename": POINTER,
-    "mode": POINTER,
-    "shflag": DWORD
-})
-def hook_fsopen(ql, address, params):
-    fname_ptr = params["filename"]
-    if fname_ptr:
-        fname = ql.mem.string(fname_ptr)
-        print(f"[API] _fsopen bypassata. Finto file aperto: '{fname}'")
-    return 0x8888
-
-@winsdkapi(cc=CDECL, params={
-    "ptr": POINTER,      # Indirizzo in memoria dei dati da scrivere
-    "size": DWORD,       # Grandezza di un blocco
-    "count": DWORD,      # Numero di blocchi
-    "stream": POINTER
-})
-def hook_fwrite(ql, address, params):
-    ptr = params["ptr"]
-    total_size = params["size"] * params["count"]
-
-    if total_size > 0:
-        # 1. Leggiamo i dati puri dalla memoria del malware
-        dati_rubati = ql.mem.read(ptr, total_size)
-
-        # 2. Li salviamo fisicamente sul nostro Linux!
-        with open("payload_estratto.bin", "ab") as f:
-            f.write(dati_rubati)
-
-        print(f"[+] DUMP: Rubati {total_size} byte dal malware e salvati su disco!")
-
-    return params["count"]
-
-@winsdkapi(cc=CDECL, params={
-    "stream": POINTER
-})
-def hook_fclose(ql, address, params):
-    # 0 significa chiusura avvenuta senza errori
+@winsdkapi(cc=STDCALL, params={'hProcess': HANDLE, 'lpAddress': LPVOID, 'dwSize': SIZE_T, 'flAllocationType': DWORD, 'flProtect': DWORD})
+def hook_VirtualAllocEx(ql, address, params):
+    print(f"\n[BEHAVIOR/INJECTION] 💉 VirtualAllocEx. Possibile tentativo di code injection! Processo: {hex(params['hProcess'])}, Dim={hex(params['dwSize'])}")
     return 0
 
 # ==========================================
-# Modulo principale di emulazione
+# FIX CRASH QILING (STRING FORMATTING)
 # ==========================================
+@winsdkapi(cc=CDECL, params={'buffer': POINTER, 'format': STRING})
+def hook_sprintf(ql, address, params):
+    fmt = params['format']
+    print(f"\n[DEBUG/FIX] 📝 sprintf (Format string) bypassato: {fmt}")
+    dummy_str = b"DUMMY_FORMATTED_STRING\x00"
+    ql.mem.write(params['buffer'], dummy_str)
+    return len(dummy_str) - 1
 
-def avvia_emulazione_base(pe_path, rootfs_path):
-    print("=" * 50)
-    print(f"[*] Avvio Analisi Rapida: {os.path.basename(pe_path)}")
-    print("=" * 50)
+# ==========================================
+# FIX CRASH QILING (FILE I/O C RUNTIME)
+# ==========================================
+dummy_file_ptr = None
 
-    try:
-        ql = Qiling([pe_path], rootfs_path, verbose=QL_VERBOSE.DEBUG)
-
-        # Registriamo gli hook essenziali
-        ql.os.set_api("LoadLibraryA", hook_LoadLibraryA)
-        ql.os.set_api("LoadLibraryW", hook_LoadLibraryW)
-        ql.os.set_api("CreateFileA", hook_CreateFileA)
-        ql.os.set_api("CreateFileW", hook_CreateFileW)
-
-        # Hook per bypass anti-sandboxing
-        ql.os.set_api("GetTickCount", hook_GetTickCount)
-        ql.os.set_api("Sleep", hook_Sleep)
-        ql.os.set_api("GetForegroundWindow", hook_GetForegroundWindow)
-        ql.os.set_api("GetCursorPos", hook_GetCursorPos)
-
-
+@winsdkapi(cc=CDECL, params={'filename': STRING, 'mode': STRING})
+def hook_fopen(ql, address, params):
+    global dummy_file_ptr
+    filename = params['filename']
+    mode = params['mode']
+    print(f"\n[BEHAVIOR/FILE I/O] 📝 fopen (Apertura file): {filename} (Modalita': {mode})")
+    
+    if 'r' in mode:
+        print(f" [!] Simulo che il file NON esista (lettura bloccata)")
+        return 0
         
+    if dummy_file_ptr is None:
+        dummy_file_ptr = ql.os.heap.alloc(0x100)
+    return dummy_file_ptr
 
-        # Hook custom avanzati per evitare i crash di PlugX
-        ql.os.set_api("GetVolumeInformationA", hook_GetVolumeInformationA)
-        ql.os.set_api("sprintf", hook_sprintf_safe)
-        ql.os.set_api("CheckTokenMembership", hook_CheckTokenMembership)
-        ql.os.set_api("ExpandEnvironmentStringsA", hook_ExpandEnvironmentStringsA)
-        ql.os.set_api("RtlInitAnsiStringEx", hook_RtlInitAnsiStringEx)
-        ql.os.set_api("CreateDirectoryA", hook_CreateDirectoryA)
-        ql.os.set_api("CreateDirectoryW", hook_CreateDirectoryW)
-        ql.os.set_api("fopen", hook_fopen)
-        ql.os.set_api("_fsopen", hook_fsopen)
-        ql.os.set_api("fwrite", hook_fwrite)
-        ql.os.set_api("fclose", hook_fclose)
+@winsdkapi(cc=CDECL, params={'filename': STRING, 'mode': STRING, 'shflag': DWORD})
+def hook_fsopen(ql, address, params):
+    global dummy_file_ptr
+    filename = params['filename']
+    mode = params['mode']
+    print(f"\n[BEHAVIOR/FILE I/O] 📝 _fsopen (Apertura file): {filename} (Modalita': {mode})")
+    
+    if 'r' in mode:
+        print(f" [!] Simulo che il file NON esista (lettura bloccata)")
+        return 0
+        
+    if dummy_file_ptr is None:
+        dummy_file_ptr = ql.os.heap.alloc(0x100)
+    return dummy_file_ptr
 
-        print("[*] Esecuzione in corso")
-        print("-" * 50)
+@winsdkapi(cc=CDECL, params={'stream': POINTER})
+def hook_fclose(ql, address, params):
+    print(f"\n[BEHAVIOR/FILE I/O] 📝 fclose (Chiusura file) bypassata correttamente.")
+    return 0
 
-        ql.run()
+@winsdkapi(cc=CDECL, params={'buffer': POINTER, 'size': SIZE_T, 'count': SIZE_T, 'stream': POINTER})
+def hook_fwrite(ql, address, params):
+    total_bytes = params['size'] * params['count']
+    print(f"\n[BEHAVIOR/FILE I/O] ✍️ fwrite: Il malware sta cercando di scrivere {total_bytes} bytes su disco!")
+    
+    if total_bytes > 0:
+        try:
+            data = ql.mem.read(params['buffer'], total_bytes)
+            with open("payload_intercettato.bin", "ab") as f:
+                f.write(data)
+            print(f" [+] DUMP COMPLETATO: {total_bytes} bytes esportati con successo in 'payload_intercettato.bin'")
+        except Exception as e:
+            print(f" [-] ERRORE durante l'esportazione del payload: {e}")
+            
+    return params['count']
 
-        print("-" * 50)
-        print("[*] Esecuzione terminata con successo.")
+def setup_advanced_hooks(ql):
+    # Hook del tracciatore Assembly (viene registrato solo se TRACCIA_ASSEMBLY è True)
+    if TRACCIA_ASSEMBLY:
+        print("\n[!] ATTENZIONE: Tracciamento Assembly ATTIVATO. L'emulazione sara' molto piu' lenta.")
+        ql.hook_code(hook_code_assembly)
+
+    # User Interaction
+    ql.os.set_api("GetCursorPos", hook_GetCursorPos)
+    ql.os.set_api("GetForegroundWindow", hook_GetForegroundWindow)
+
+    # Timing
+    ql.os.set_api("Sleep", hook_Sleep)
+    ql.os.set_api("GetTickCount", hook_GetTickCount)
+    ql.os.set_api("QueryPerformanceCounter", hook_QueryPerformanceCounter)
+    
+    # Anti-Debug
+    ql.os.set_api("IsDebuggerPresent", hook_IsDebuggerPresent)
+    ql.os.set_api("CheckRemoteDebuggerPresent", hook_CheckRemoteDebuggerPresent)
+    
+    # Env Checks
+    ql.os.set_api("GetSystemMetrics", hook_GetSystemMetrics)
+    ql.os.set_api("GetVolumeInformationA", hook_GetVolumeInformationA)
+    ql.os.set_api("GetComputerNameA", hook_GetComputerNameA)
+    ql.os.set_api("GetUserNameA", hook_GetUserNameA)
+    
+    # Registry & Files
+    ql.os.set_api("RegOpenKeyExA", hook_RegOpenKeyExA)
+    ql.os.set_api("CreateFileA", hook_CreateFileA)
+    
+    # Memory & Injection
+    ql.os.set_api("VirtualAlloc", hook_VirtualAlloc)
+    ql.os.set_api("VirtualAllocEx", hook_VirtualAllocEx)
+    
+    # Privileges
+    ql.os.set_api("CheckTokenMembership", hook_CheckTokenMembership)
+    ql.os.set_api("IsUserAnAdmin", hook_IsUserAnAdmin)
+    
+    # Environment Strings
+    ql.os.set_api("ExpandEnvironmentStringsA", hook_ExpandEnvironmentStringsA)
+    
+    # Fix Crashes & File I/O
+    ql.os.set_api("sprintf", hook_sprintf)
+    ql.os.set_api("fopen", hook_fopen)
+    ql.os.set_api("_fsopen", hook_fsopen)
+    ql.os.set_api("fclose", hook_fclose)
+    ql.os.set_api("fwrite", hook_fwrite)
+
+def avvia_analisi(pe_path, rootfs_path):
+    print("\n" + "="*70)
+    print(f"[*] AVVIO ANALISI AVANZATA: {os.path.basename(pe_path)}")
+    print(f"[*] Modalità SIMULA_UTENTE_REALE = {SIMULA_UTENTE_REALE}")
+    print("="*70 + "\n")
+    
+    try:
+        temp_dir = os.path.join(rootfs_path, "Users", "Admin", "AppData", "Local", "Temp")
+        os.makedirs(temp_dir, exist_ok=True)
+        print(f"[+] Ambiente preparato. Creata cartella fittizia per i drop: {temp_dir}\n")
+        
+        ql = Qiling([pe_path], rootfs_path, verbose=QL_VERBOSE.DEFAULT)
+        setup_advanced_hooks(ql)
+        
+        print("[*] Motore di emulazione avviato. In attesa del comportamento del malware...")
+        print("[*] (Premi Ctrl+C per interrompere in qualsiasi momento)\n")
+        
+        ql.run() 
+        
+        print("\n[*] Esecuzione terminata correttamente.")
 
     except Exception as e:
-        pc = ql.arch.regs.arch_pc if 'ql' in locals() else 0
-        print(f"\n[!] L'emulazione si è fermata:")
-        print(f"    Motivo: {e}")
-        print(f"    PC: 0x{pc:x}")
-
+        print(f"\n[!] Eccezione durante l'esecuzione: {e}")
 
 if __name__ == "__main__":
     malware_path = os.path.join(os.getcwd(), "Source", "PlugX", "PlugXV0.exe")
-    rootfs = os.path.join(os.getcwd(), "..", "..")
-
+    rootfs = os.path.join(os.getcwd(), "..", "..") 
+    
     if not os.path.exists(malware_path):
-        print(f"[-] Errore: File malware non trovato al percorso:")
-        print(f"    {malware_path}")
+        print(f"\n[-] Errore CRITICO: Eseguibile del malware non trovato.\n    Percorso cercato: {malware_path}\n")
         sys.exit(1)
-
-    avvia_emulazione_base(malware_path, rootfs)
+        
+    avvia_analisi(malware_path, rootfs)
