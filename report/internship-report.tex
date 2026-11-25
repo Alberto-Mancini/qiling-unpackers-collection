@@ -1,0 +1,349 @@
+\documentclass[11pt, a4paper]{article}
+
+% =====================================================================
+% PACCHETTI FONDAMENTALI (compatibili con PdfLaTeX su MiKTeX)
+% =====================================================================
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[italian]{babel}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage[a4paper, top=2.5cm, bottom=2.5cm, left=2.5cm, right=2.5cm, headheight=14pt]{geometry}
+
+% Impaginazione, colori, titoli ed elenchi
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{lastpage}
+\usepackage{enumitem}
+\usepackage{parskip}
+\usepackage{graphicx}
+
+% Collegamenti cliccabili nell'indice e metadati PDF (da caricare per ultimo)
+\usepackage[
+hidelinks,
+pdfauthor={Alberto Mancini},
+pdftitle={Analisi e Superamento delle Tecniche Anti-VM e Anti-Sandbox nei Malware PlugX, TrickBot, Astaroth e Latrodectus}
+]{hyperref}
+
+% =====================================================================
+% PALETTE COLORI E STILE DEI TITOLI
+% =====================================================================
+\definecolor{primary}{HTML}{1B365D}   % Blu accademico per titoli e dettagli
+\definecolor{muted}{HTML}{5A6675}     % Grigio per intestazioni e metadati
+\definecolor{boxbg}{HTML}{F3F6FA}     % Sfondo leggero per il riquadro Obiettivo
+\definecolor{rulecol}{HTML}{CBD5E1}   % Grigio chiaro per le linee divisorie
+
+\titleformat{\section}
+{\Large\bfseries\color{primary}}
+{\thesection.}{0.6em}{}
+[\vspace{2pt}\color{rulecol}\titlerule]
+
+\titleformat{\subsection}
+{\large\bfseries\color{primary!85!black}}
+{\thesubsection}{0.6em}{}
+
+\titleformat{\subsubsection}
+{\normalsize\bfseries\color{black!80}}
+{\thesubsubsection}{0.6em}{}
+
+% Spaziatura compatta e ordinata per gli elenchi
+\setlist[itemize]{leftmargin=1.5em, itemsep=4pt, topsep=4pt}
+\setlist[enumerate]{leftmargin=1.8em, itemsep=4pt, topsep=4pt}
+
+% =====================================================================
+% INTESTAZIONE E PIE' DI PAGINA
+% =====================================================================
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\footrulewidth}{0.4pt}
+\fancyhead[L]{\small\color{muted}Relazione Tecnica -- Analisi Malware Anti-VM e Anti-Sandbox}
+\fancyhead[R]{\small\color{muted}Alberto Mancini}
+\fancyfoot[L]{\small\color{muted}Matricola: 352637}
+\fancyfoot[R]{\small\color{muted}Pagina \thepage\ di \pageref{LastPage}}
+
+% =====================================================================
+% INIZIO DOCUMENTO
+% =====================================================================
+\begin{document}
+	
+\begin{titlepage}
+	\centering
+	
+	% --- 1. INTESTAZIONE UNIVERSITÀ E CORSO ---
+	{\Large \textsc{Università degli Studi di Perugia}} \\[0.3cm]
+	{\large Dipartimento di Matematica e Informatica} \\[0.2cm]
+	{\large Corso di Laurea Triennale in Informatica} \\[1.2cm]
+	
+	% --- 2. LOGO ---
+	\includegraphics[width=0.42\textwidth]{img/unipg_icon.png}
+	
+	% --- 3. TIPO DI DOCUMENTO E TITOLO ---
+	\vfill % Prima molla: bilancia lo spazio tra logo e titolo
+	
+	{\large \textbf{Relazione di Tirocinio}} \\[0.4cm]
+	\rule{\textwidth}{0.5pt} \\[0.4cm]
+	{\LARGE \bfseries Analisi e Superamento delle Tecniche Anti-VM e Anti-Sandbox nei Malware PlugX, TrickBot, Astaroth e Latrodectus \par}
+	\vspace{0.3cm}
+	\rule{\textwidth}{0.5pt}
+	
+	\vfill % Seconda molla: spinge i nomi in basso e lascia respiro al titolo
+	
+	% --- 4. RELATORE (SINISTRA) E STUDENTE (DESTRA) ---
+	\begin{minipage}[t]{0.48\textwidth}
+		\begin{flushleft}
+			\textbf{Tutor:} \\
+			Prof. Francesco Santini
+		\end{flushleft}
+	\end{minipage}
+	\hfill
+	\begin{minipage}[t]{0.48\textwidth}
+		\begin{flushright}
+			\textbf{Studente:} \\
+			Alberto Mancini \\
+			Matricola: 352637
+		\end{flushright}
+	\end{minipage}
+	
+	\vspace{1.8cm} % Spazio fisso e contenuto sopra la linea finale
+	
+	% --- 5. ANNO ACCADEMICO ---
+	\rule{\textwidth}{0.5pt} \\[0.3cm]
+	{\large Anno Accademico 2026/2027}
+	
+\end{titlepage}
+	
+	% --- INDICE AUTOMATICO ---
+	% (Se non desideri l'indice, aggiungi un simbolo % davanti alle due righe qui sotto)
+	\tableofcontents
+	\newpage
+	
+	% =====================================================================
+	% SEZIONE 1
+	% =====================================================================
+	\section{Introduzione e Architettura delle Infezioni}
+	
+	Questo documento analizza le tecniche di evasione di quattro campioni malevoli: PlugX, TrickBot, Astaroth e Latrodectus. Per ostacolare il reverse engineering e le sandbox automatiche, tali minacce integrano controlli Anti-VM e Anti-Sandbox che rilevano anomalie temporali, accertano la presenza di un utente umano, ispezionano l'hardware (CPU, RAM, disco, rete) e neutralizzano il monitoraggio prima di attivare il codice dannoso. Tutti i campioni adottano un'architettura multi-fase che separa le verifiche difensive dall'esecuzione finale:
+	
+	\begin{itemize}
+		\item \textbf{Caso di Studio 1 -- PlugX (Trojan a 32 bit in C/C++):} Nella prima fase, il file iniziale sonda il sistema per escludere una sandbox, verifica che il PC non sia già infetto ed estrae su disco il secondo stadio configurandone l'avvio automatico nel Registro di Windows. Nella seconda fase, l'eseguibile estratto (\texttt{MediaCenter.exe}), protetto da PECompact2, controlla il proprio percorso di avvio e contatta il server di comando.
+		
+		\item \textbf{Caso di Studio 2 -- TrickBot (Trojan a 64 bit in Go):} Nella prima fase, verifica se è già attivo come processo secondario; altrimenti avvia una copia invisibile di se stesso e chiude subito il primo processo. Nella seconda fase, ispeziona hardware e rete per escludere macchine virtuali e profilare la vittima. Nella terza fase, invia i dati al server remoto e attende ordini.
+		
+		\item \textbf{Caso di Studio 3 -- Astaroth (Malware a 32 bit compresso con UPX):} Nella prima fase, decomprime il codice in RAM, decifra una stringa segreta ricifrandola in AES-256, verifica l'assenza di debugger e richiede i privilegi di Amministratore. Nella seconda fase, si nasconde nel sistema, imposta la persistenza, scansiona la rete locale e avvia un attacco che satura la RAM e moltiplica i processi.
+		
+		\item \textbf{Caso di Studio 4 -- Latrodectus (Caricatore multi-stadio a 64 bit):} Il primo stadio è una libreria mascherata da eseguibile che usa un punto d'ingresso vuoto e un pesante ciclo matematico per bloccare gli emulatori prima di decifrare il secondo stadio. Il secondo stadio verifica il processo ospite e legge da disco le librerie di Windows per invocare il kernel senza passare per le funzioni monitorate. Il terzo stadio contiene il modulo finale offuscato, attivo solo su un sistema Windows reale.
+	\end{itemize}
+	
+	% =====================================================================
+	% SEZIONE 2
+	% =====================================================================
+	\section{Analisi dei Requisiti e Specifiche del Problema}
+	
+	L'obiettivo del lavoro è analizzare dinamicamente i quattro campioni in un ambiente isolato, forzandoli a mostrare il proprio comportamento ed eludendo le loro difese. Quando un malware sospetta di trovarsi in una sandbox o in un emulatore, interrompe l'esecuzione secondo tre modalità:
+	
+	\begin{enumerate}
+		\item \textbf{Blocco in cicli infiniti di attesa (PlugX e TrickBot):} Se PlugX rileva salti anomali nell'orologio, l'immobilità del mouse o l'assenza di una finestra attiva, ripete all'infinito i controlli senza estrarre il secondo stadio. Analogamente, TrickBot entra in un ciclo infinito se l'orologio condiviso di Windows non avanza durante le pause di misurazione della CPU.
+		
+		\item \textbf{Chiusura prematura, crash su sottosistemi assenti o saturazione delle risorse (TrickBot e Astaroth):} TrickBot chiude subito il processo iniziale dopo aver avviato la copia nascosta e si blocca se l'hardware interrogato non esiste nell'emulatore. Astaroth manda in crash gli emulatori privi del motore crittografico di Windows e, nel finale, paralizza la macchina moltiplicando i processi e riempiendo centinaia di Megabyte di RAM.
+		
+		\item \textbf{Incompatibilità strutturale con l'emulazione user-mode (Latrodectus):} Alcuni campioni eseguono centinaia di milioni di calcoli matematici sulla CPU e leggono i file di sistema direttamente dal disco per invocare chiamate dirette al kernel di Windows, rendendo impossibile completare l'emulazione dinamica senza un vero kernel operativo.
+	\end{enumerate}
+	
+	Si è quindi progettata una logica di falsificazione in tempo reale dei parametri di sistema per i primi tre malware, affiancando all'emulatore l'estrazione e la decifratura statica per documentare i limiti emersi sul quarto campione.
+	
+	% =====================================================================
+	% SEZIONE 3
+	% =====================================================================
+	\section{Architettura del Sistema e Tecnologie Adottate}
+	
+	La metodologia si basa sull'emulazione dinamica tramite il Qiling Framework, governato con script in Python. A differenza di una macchina virtuale tradizionale dotata di un intero sistema operativo, Qiling carica il binario in un perimetro isolato ed emula singolarmente le istruzioni del processore. Ogni volta che il malware richiede un servizio a Windows --- leggere l'orologio, controllare il mouse, ispezionare l'hardware, scrivere un file o aprire una connessione di rete --- lo script Python intercetta la chiamata tramite l'aggancio delle funzioni di sistema.
+	
+	Intervenendo nell'istante dell'invocazione, lo script legge e modifica la memoria del programma e sostituisce i valori restituiti da Windows. Hardware e sottosistemi operativi (orologio, input, file system, crittografia, database hardware e rete) sono stati così simulati via software, fornendo risposte fittizie ma coerenti che riproducono una vera postazione di lavoro usata da un operatore umano.
+	
+	% =====================================================================
+	% SEZIONE 4
+	% =====================================================================
+	\section{Caso di Studio 1: Analisi e Superamento delle Difese nel Malware PlugX}
+	
+	\subsection{Prima Fase: Evasione Ambientale ed Estrazione del Secondo Stadio}
+	
+	\subsubsection{Alterazione Temporale}
+	
+	\textbf{Funzionamento della Tecnica:} Le sandbox automatiche spesso accelerano il tempo o saltano le pause per abbreviare l'analisi. PlugX rileva questa anomalia leggendo l'orologio di sistema subito prima e subito dopo una pausa di cinque secondi: se la differenza tra le due letture è inferiore ai cinque secondi attesi, capisce di essere analizzato e ripete all'infinito il ciclo difensivo.
+	
+	\textbf{Logica di Risoluzione:} Sono state intercettate sia la funzione di pausa sia la lettura dell'orologio. Quando il malware richiede una pausa, lo script annulla l'attesa reale ma memorizza i millisecondi richiesti; quando subito dopo rilegge l'orologio, lo script somma quei millisecondi al contatore temporale restituendoglieli. L'analisi procede all'istante, ma il calcolo del malware rileva i cinque secondi trascorsi.
+	
+	\subsubsection{Controllo del Movimento del Cursore}
+	
+	\textbf{Funzionamento della Tecnica:} Per accertare la presenza di un utente umano, PlugX legge due volte le coordinate del mouse a distanza di un secondo e calcola la differenza tra le posizioni orizzontali: se il cursore è rimasto fermo, la differenza è zero e il malware resta bloccato nel ciclo di attesa.
+	
+	\textbf{Logica di Risoluzione:} Intercettando la lettura del cursore, lo script inietta nella memoria del malware una variazione casuale tra meno quindici e più quindici pixel ad ogni chiamata. Simulando questo spostamento continuo, il malware rileva coordinate sempre diverse tra le due letture e ritiene presente l'utente.
+	
+	\subsubsection{Controllo della Finestra Attiva}
+	
+	\textbf{Funzionamento della Tecnica:} PlugX richiede a Windows l'identificativo della finestra attiva in primo piano; nelle sandbox prive di interfaccia grafica la funzione restituisce zero, bloccando l'esecuzione. L'analisi del codice ha però svelato un errore logico degli autori: se il sistema restituisce un valore non nullo, il programma lo salva ma, per via di una variabile interna lasciata fissa a zero nel codice, esegue un salto incondizionato che salta il controllo successivo sul cambio di finestra nel tempo.
+	
+	\textbf{Logica di Risoluzione:} Sfruttando tale difetto interno, è bastato intercettare la richiesta e restituire un identificativo fittizio, crescente e mai nullo: il malware supera la prima verifica, salta automaticamente la seconda ed esce dal ciclo di difesa.
+	
+	\subsubsection{Controllo di Pre-Infezione ed Estrazione su File System Virtuale}
+	
+	\textbf{Funzionamento della Tecnica e Logica di Risoluzione:} Superati i controlli ambientali, il primo stadio verifica se il PC è già infetto tentando di aprire in sola lettura \texttt{MediaCenter.exe} nella cartella temporanea \texttt{MicroMedia}; se il file esiste, termina subito. Restituendo esito negativo per questa lettura, il malware ha ritenuto il sistema pulito avviando l'installazione. Poiché la scrittura del secondo stadio usava funzioni C di basso livello non gestite da Qiling, è stato creato in Python un File System Virtuale che ha catturato i byte decifrati in RAM salvandoli su disco, estraendo il secondo stadio completo (74.358 byte).
+	
+	\subsection{Seconda Fase: Analisi Post-Riavvio e Limiti dell'Emulatore}
+	
+	\subsubsection{Falsificazione del Percorso di Esecuzione}
+	
+	Avviando separatamente il secondo stadio estratto, il programma verifica subito la cartella di lancio e prosegue solo se rileva il percorso di persistenza previsto dopo il riavvio (\texttt{MicroMedia\textbackslash MediaCenter.exe}). Intercettando la richiesta del percorso di avvio e scrivendo in memoria l'indirizzo atteso, il controllo è stato superato.
+	
+	\subsubsection{Intercettazione della Rete e Blocco dell'Emulatore}
+	
+	Sbloccato il percorso, il secondo stadio ha inizializzato la rete e, tramite l'intercettazione dell'apertura HTTP, ha rivelato il contatto verso il server di comando, camuffato con l'intestazione di Internet Explorer 8. Subito dopo, il compressore PECompact2 ha tentato di decomprimere l'ultimo strato verificando l'esistenza della cartella \texttt{C:\textbackslash Windows\textbackslash SysWOW64}. Nonostante il percorso fornito dallo script, l'esecuzione si è fermata per un limite interno di Qiling: nel tradurre il controllo della cartella su sistema Linux, il motore tenta erroneamente di aprire la directory come un file, generando un'eccezione irreversibile prima dell'iniezione finale.
+	
+	\subsection{Comportamento Complessivo del Malware PlugX}
+	
+	\begin{enumerate}
+		\item \textbf{Infezione Iniziale:} Verifica la presenza di un utente reale (tempo, mouse e finestra attiva) e l'assenza di infezioni pregresse, poi decifra e salva \texttt{MediaCenter.exe} nella cartella temporanea.
+		\item \textbf{Persistenza e Pulizia Tracce:} Registra di nascosto il nuovo eseguibile nell'avvio automatico del Registro di Windows e lancia un comando ritardato per cancellare il file iniziale.
+		\item \textbf{Comunicazione Remota:} Al riavvio, parte dal percorso di persistenza, contatta via HTTP il server di comando fingendosi Internet Explorer 8 e decomprime in RAM il modulo di controllo remoto.
+	\end{enumerate}
+	
+	% =====================================================================
+	% SEZIONE 5
+	% =====================================================================
+	\section{Caso di Studio 2: Analisi e Superamento delle Difese nel Malware TrickBot}
+	
+	\subsection{Evasione tramite Creazione di un Processo Figlio Nascosto}
+	
+	\textbf{Funzionamento della Tecnica:} Molte sandbox monitorano solo il primo processo avviato: se questo termina subito, l'analisi si chiude. All'avvio, TrickBot cerca una variabile d'ambiente segreta usata come segnale interno. Al primo lancio la variabile è assente: il malware avvia allora in background una seconda copia invisibile di se stesso passandole la variabile attiva, e chiude subito il primo processo.
+	
+	\textbf{Logica di Risoluzione:} Poiché Qiling emula un solo processo alla volta, la chiusura iniziale avrebbe interrotto l'analisi. Si è quindi intercettata la creazione del nuovo processo per registrare l'avvio nascosto e si è intervenuti sull'istruzione successiva, dove il malware controlla se il processo figlio è partito prima di chiudersi: azzerando il registro del processore con tale esito, il processo iniziale è stato costretto a proseguire nella seconda fase come se fosse già il processo figlio.
+	
+	\subsection{Controllo del Processore tramite Interrogazione del Sistema}
+	
+	\textbf{Funzionamento della Tecnica:} TrickBot interroga il servizio di gestione di Windows per leggere nome commerciale, produttore e numero di core della CPU. Sulle macchine virtuali non mascherate riceve nomi rivelatori (QEMU, VMware), mentre in Qiling il servizio è assente, causando il blocco immediato del programma.
+	
+	\textbf{Logica di Risoluzione:} È stato simulato in memoria l'intero servizio di interrogazione hardware: ad ogni domanda sul processore, lo script restituisce i parametri di una CPU desktop Intel Core i7-9700K a 8 core fisici e logici da 3600 MHz, nascondendo l'emulatore.
+	
+	\subsection{Controlli Basati sul Tempo: Durata di Accensione, Pause e Carico del Processore}
+	
+	\textbf{Funzionamento della Tecnica:} TrickBot combina tre verifiche temporali: controlla da quanti minuti è acceso il PC (una sandbox è accesa da pochi secondi); legge i contatori di attività della CPU, attende un secondo e li rilegge per calcolare la percentuale di carico; infine, essendo scritto in Go, verifica lo scorrere del tempo durante le pause leggendo un'area di memoria condivisa del kernel di Windows che negli emulatori resta ferma, bloccando la pausa in un ciclo infinito.
+	
+	\textbf{Logica di Risoluzione:} Il triplice blocco è stato superato facendo avanzare artificialmente l'orologio nella memoria condivisa di Windows ad ogni attesa (sbloccando il ciclo infinito), restituendo una durata di accensione superiore a un'ora (3604 secondi) e incrementando i contatori degli 8 core tra le due letture così da far risultare un carico realistico della CPU pari al 24,69\%.
+	
+	\subsection{Verifica delle Risorse Fisiche: Memoria, Disco Rigido e Traffico di Rete}
+	
+	\textbf{Funzionamento della Tecnica:} Le sandbox dispongono spesso di risorse minime (2--4 GB di RAM, dischi sotto i 60 GB e traffico di rete quasi nullo). TrickBot ispeziona memoria fisica, dischi, schede di rete e versione di Windows per scartare le macchine virtuali.
+	
+	\textbf{Logica di Risoluzione:} Intercettando tutte le chiamate hardware, è stato presentato il profilo coerente di una vera postazione: 16 GB di RAM (6 GB usati e 10 GB liberi), disco NTFS da 500 GB (180 GB occupati), scheda Gigabit con indirizzo MAC valido e traffico pregresso di 154 MB ricevuti e 48 MB inviati su Windows 10 Pro.
+	
+	\subsection{Verifica della Connettività Internet, Geolocalizzazione e Scansione delle Porte}
+	
+	\textbf{Funzionamento della Tecnica:} Prima di contattare il server di comando, TrickBot verifica l'accesso a Internet interrogando \texttt{api.ipify.org} (per l'IP pubblico) e \texttt{ip-api.com} (per Nazione e Città), eseguendo poi una scansione locale su 23 porte di rete.
+	
+	\textbf{Logica di Risoluzione:} Lo script ha simulato la risoluzione dei domini e le risposte HTTP restituendo due pacchetti JSON validi che collocano il PC a New York (Stati Uniti), segnalando inoltre quattro porte standard aperte durante la scansione locale.
+	
+	\subsection{Comportamento Complessivo del Malware TrickBot}
+	
+	\begin{enumerate}
+		\item \textbf{Identificazione Persistente:} Crea un file di registro temporaneo e genera un identificativo univoco della vittima (nome PC e indirizzo MAC), salvandolo in \texttt{AppData\textbackslash Roaming\textbackslash RemoteAdmin}.
+		\item \textbf{Esfiltrazione del Profilo:} Apre una connessione WebSocket verso il server di comando (\texttt{54.233.190.22:8080}) e invia un pacchetto Protocol Buffers con l'intera scheda tecnica della macchina (IP, posizione, CPU, RAM, dischi, rete, versione Windows e porte aperte).
+		\item \textbf{Esecuzione di Comandi Remoti:} Simulando il server dell'attaccante, si è accertato che il trojan esegue cinque ordini: lettura della cartella corrente, ricezione di eseguibili dall'attaccante, furto di file dalla vittima, cancellazione di file ed esecuzione di comandi da terminale.
+	\end{enumerate}
+	
+	% =====================================================================
+	% SEZIONE 6
+	% =====================================================================
+	\section{Caso di Studio 3: Analisi e Superamento delle Difese nel Malware Astaroth}
+	
+	\subsection{Compressione dell'Eseguibile ed Estrazione dalla Memoria}
+	
+	\textbf{Funzionamento della Tecnica:} Esaminando Astaroth su disco, stringhe e funzioni importate risultano illeggibili poiché l'eseguibile è compresso con UPX: il codice reale viene ricostruito nella memoria RAM solo all'avvio.
+	
+	\textbf{Logica di Risoluzione:} Il malware è stato lasciato decomprimere da solo in Qiling; intercettando l'inizio della funzione principale subito dopo la decompressione, lo script ha salvato su disco una copia pulita della memoria RAM ricostruita, svelando l'intero codice interno.
+	
+	\subsection{Offuscamento delle Stringhe e Blocco degli Emulatori tramite Funzioni Crittografiche}
+	
+	\textbf{Funzionamento della Tecnica:} All'avvio della funzione principale, il malware decifra in memoria una sequenza di byte tramite operazione XOR ottenendo per pochi istanti la frase segreta ``Molon Labe'', e chiede subito a Windows di ricifrarla con algoritmo AES a 256 bit invocando cinque funzioni del sottosistema crittografico Microsoft. Poiché Qiling non implementa il motore crittografico completo di Windows, la chiamata causava il crash immediato dell'emulatore prima della fase malevola.
+	
+	\textbf{Logica di Risoluzione:} Sono state intercettate tutte e cinque le funzioni crittografiche restituendo codici di successo; inoltre, intercettando il passaggio dei dati alla cifratura AES, lo script legge il buffer appena decifrato dal ciclo XOR, estraendo in chiaro la stringa ``Molon Labe'' ed evitando il crash.
+	
+	\subsection{Rilevamento degli Strumenti di Analisi ed Elevazione dei Privilegi}
+	
+	\textbf{Funzionamento della Tecnica:} Il programma controlla nella struttura interna del processo se è monitorato da un debugger e tenta poi di rilanciarsi richiedendo a Windows i privilegi di Amministratore.
+	
+	\textbf{Logica di Risoluzione:} Il controllo anti-debugger è stato forzato a restituire sempre esito negativo, mentre alla richiesta di avvio come Amministratore è stato restituito il codice di pieno successo, evitando che il malware lanciasse un processo esterno fuori dall'emulatore.
+	
+	\subsection{Verifica dell'Interfaccia di Rete e Scansione della Rete Locale}
+	
+	\textbf{Funzionamento della Tecnica:} Il malware chiede a Windows il nome del PC e il suo indirizzo IP locale; se la struttura di rete in memoria è assente, va in crash. Ottenuto l'IP (es. \texttt{192.168.1.100}), ne conserva i primi tre numeri e invia un Ping ICMP a tutti i 254 indirizzi della sottorete locale.
+	
+	\textbf{Logica di Risoluzione:} È stata costruita nella RAM simulata la struttura binaria con l'indirizzo \texttt{192.168.1.100} ed è stata intercettata la funzione di invio dei Ping per registrare la scansione dei 254 indirizzi azzerando le pause.
+	
+	\subsection{Esaurimento Intenzionale delle Risorse di Sistema e della Memoria}
+	
+	\textbf{Funzionamento della Tecnica:} L'ultima fase di Astaroth combina tre azioni che mandano in blocco o in timeout le sandbox: entra in un ciclo infinito in cui avvia continuamente nuove copie di se stesso; a ogni ciclo alloca circa 400 Megabyte di RAM ed esegue 100 milioni di scritture consecutive per riempire ogni cella allocata (saturando la memoria delle VM e bloccando la CPU degli emulatori); infine inserisce pause ripetute.
+	
+	\textbf{Logica di Risoluzione:} Per documentare l'attacco senza esaurire la memoria o restare nel ciclo infinito, la richiesta di 400 MB viene registrata ma ridotta a 4 KB; all'inizio del ciclo da 100 milioni di scritture, il puntatore di esecuzione viene spostato direttamente alla fine del ciclo; infine, dopo i primi due tentativi di duplicazione del processo, al terzo tentativo lo script restituisce un esito negativo che obbliga il malware a terminare.
+	
+	\subsection{Comportamento Complessivo del Malware Astaroth}
+	
+	\begin{enumerate}
+		\item \textbf{Avvio e Verifica Ambiente:} Si decomprime in RAM, decifra e ricifra in AES-256 il motto ``Molon Labe'', verifica l'assenza di debugger e richiede i privilegi di Amministratore.
+		\item \textbf{Occultamento e Doppia Persistenza:} Si copia in \texttt{AppData\textbackslash Roaming} come \texttt{5kidRoot.exe}, si imposta come file nascosto e di sistema e crea due chiavi di avvio automatico nel Registro di Windows (utente e macchina).
+		\item \textbf{Scansione e Sabotaggio Finale:} Scansiona i 254 indirizzi della rete locale via Ping e scatena un attacco Denial of Service interno (moltiplicazione infinita dei processi e riempimento di blocchi da 400 MB di RAM) che paralizza il PC.
+	\end{enumerate}
+	
+	% =====================================================================
+	% SEZIONE 7
+	% =====================================================================
+	\section{Caso di Studio 4: Analisi di Latrodectus e Casi con Esito Negativo nell'Emulazione}
+	
+	Il quarto campione, Latrodectus, rappresenta i malware che hanno dato esito negativo nell'emulazione dinamica completa, permettendo di spiegare perché alcune difese estreme non possono essere superate da un emulatore user-mode come Qiling.
+	
+	\subsection{Falso Punto d'Ingresso e Attivazione tramite Funzioni Esportate}
+	
+	\textbf{Funzionamento della Tecnica e Risoluzione Iniziale:} Pur avendo estensione \texttt{.exe}, il file è una libreria DLL a 64 bit. Per ingannare le sandbox che avviano la libreria dal punto d'ingresso principale standard, gli autori vi hanno inserito una funzione vuota che restituisce subito successo e termina. Il vero punto d'ingresso del primo stadio è nascosto dietro 203 funzioni esportate che puntano tutte allo stesso indirizzo interno, individuato staticamente e impostato nello script Python.
+	
+	\subsection{Offuscamento Matematico e Ciclo di Rallentamento Anti-Emulazione}
+	
+	\textbf{Funzionamento della Tecnica e Causa del Primo Blocco:} A differenza dei primi tre campioni (che usavano pause di Windows intercettabili), il primo stadio di Latrodectus sovraccarica il processore: ogni istruzione utile è circondata da calcoli vettoriali inutili e, subito all'avvio, esegue un doppio ciclo annidato di oltre 456 milioni di iterazioni matematiche sui registri della CPU senza chiamare alcuna funzione di sistema. Su una CPU fisica il ciclo dura meno di un secondo, ma in un emulatore software come Qiling causa il blocco per superamento del tempo massimo. Inoltre, anche saltando il ciclo, il malware ispeziona la lista dei moduli in memoria partendo dalla propria intestazione, dove gli autori hanno inserito un puntatore corrotto che Windows ignora ma che manda Qiling in crash.
+	
+	\textbf{Intervento tramite Analisi Statica:} Analizzando staticamente il codice dopo il ciclo, si è scoperto che preleva 102.914 byte cifrati dalle risorse del file e li decifra tramite operazione XOR con una chiave di 20 byte; replicando tale decifratura in Python, è stato estratto integralmente il secondo stadio.
+	
+	\subsection{Controllo del Processo Ospite e Chiamate Dirette al Kernel da Disco}
+	
+	\textbf{Funzionamento della Tecnica e Motivo dell'Esito Negativo in Qiling:} L'analisi del secondo stadio ha rivelato i due meccanismi che rendono impossibile proseguire in Qiling:
+	
+	\begin{enumerate}
+		\item \textbf{Controllo del programma ospite:} Verifica di essere eseguito dentro i processi di sistema \texttt{rundll32.exe} o \texttt{regsvr32.exe}, terminando subito in caso contrario.
+		\item \textbf{Lettura diretta di \texttt{ntdll.dll} dal disco e chiamate dirette al kernel:} Sapendo che emulatori e sandbox inseriscono i propri ganci nelle librerie di Windows caricate in RAM (in particolare in \texttt{ntdll.dll}), il secondo stadio di Latrodectus rifiuta di usare le librerie in RAM: apre direttamente dal disco rigido il file \texttt{C:\textbackslash Windows\textbackslash System32\textbackslash ntdll.dll}, lo copia in un buffer privato, estrae i byte delle funzioni che creano e mappano nuove sezioni di memoria ed esegue direttamente l'istruzione \texttt{syscall} da quel buffer privato per caricare il terzo stadio.
+	\end{enumerate}
+	
+	Poiché Qiling opera a livello utente intercettando le chiamate alle librerie in RAM ma non possiede un vero kernel di Windows, quando Latrodectus legge \texttt{ntdll.dll} da disco ed esegue \texttt{syscall} nella propria memoria privata scavalca tutti i ganci Python di Qiling e invia alla CPU un'istruzione destinata a un vero kernel Windows che l'emulatore non può soddisfare, arrestando inevitabilmente l'emulazione dinamica.
+	
+	\subsection{Offuscamento del Terzo Stadio, Comportamento Complessivo e Conclusioni sul Caso Negativo}
+	
+	Tramite estrazione statica è stato recuperato dal secondo stadio anche il terzo stadio (\texttt{UpdaterTag.dll}), totalmente offuscato: non contiene stringhe in chiaro (decifrate in RAM solo nell'istante in cui ogni funzione viene eseguita) e risolve dinamicamente tutte le chiamate a Windows tramite codici numerici.
+	
+	Nel complesso, Latrodectus opera come un caricatore in tre stadi che non scrive mai il modulo finale su disco: il primo stadio manda in timeout gli emulatori; il secondo rimuove i ganci leggendo \texttt{ntdll.dll} da disco; il terzo (\texttt{UpdaterTag.dll}) raccoglie i dati della vittima e contatta i server di comando per scaricare ulteriori minacce. Questo esito negativo dimostra che, di fronte a cicli da centinaia di milioni di iterazioni e chiamate \texttt{syscall} dirette al kernel lette da disco, l'emulazione user-mode (Qiling) è preziosa per decifrare gli involucri esterni, ma per l'analisi dinamica del modulo finale occorre una sandbox basata su una macchina virtuale Windows reale con monitoraggio a livello del kernel.
+	
+	% =====================================================================
+	% SEZIONE 8
+	% =====================================================================
+	\section{Conclusione}
+	
+	Lo studio condotto su PlugX, TrickBot, Astaroth e Latrodectus ha permesso di esaminare le principali tecniche Anti-VM e Anti-Sandbox moderne e di valutare potenzialità e limiti del Qiling Framework:
+	
+	\begin{enumerate}
+		\item Su \textbf{PlugX}, l'avanzamento fittizio del tempo, la simulazione del mouse, lo sfruttamento del difetto nel controllo della finestra attiva e la falsificazione del percorso di avvio hanno permesso di estrarre il secondo stadio su File System Virtuale e catturare la connessione HTTP (Internet Explorer 8), evidenziando un primo limite dell'emulatore sulla cartella \texttt{SysWOW64} con PECompact2.
+		
+		\item Su \textbf{TrickBot}, il blocco della chiusura del processo iniziale per seguire la copia nascosta, la simulazione di una CPU Intel a 8 core, l'avanzamento dell'orologio condiviso di Windows, la presentazione di 16 GB di RAM e 500 GB di disco e la simulazione di Internet e del server di comando hanno consentito di ricostruire l'intera esecuzione del trojan senza un vero sistema Windows.
+		
+		\item Su \textbf{Astaroth}, la decompressione automatica di UPX in RAM, la simulazione delle funzioni AES-256 (che bloccavano l'emulatore e celavano la stringa ``Molon Labe''), il bypass anti-debugger, la simulazione della rete per i 254 Ping locali e la neutralizzazione dell'attacco finale da 400 MB di RAM hanno completato l'analisi in pochi secondi svelando la persistenza (\texttt{5kidRoot.exe}).
+		
+		\item Su \textbf{Latrodectus}, infine, l'indagine ha chiarito perché i campioni che combinano cicli matematici da 456 milioni di iterazioni e chiamate \texttt{syscall} dirette al kernel lette da \texttt{ntdll.dll} su disco diano esito negativo nell'emulazione user-mode, dimostrando come in tali casi l'emulazione e la decifratura statica vadano integrate con sandbox dotate di un vero kernel Windows.
+	\end{enumerate}
+	
+\end{document}

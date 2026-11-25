@@ -16,3 +16,12 @@ pip-delete-this-directory.txt
 *.exe
 *.dll
 *.shellcode
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.fls
+*.fdb_latexmk
