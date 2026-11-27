@@ -10,3 +10,7 @@ The primary goal of these harnesses is to achieve rapid, targeted emulation to b
 | Malware Family | Harness Goal | Module Link |
 | --- | --- | --- |
 | PlugX | Stage-1 In-Memory Unpacker (LZNT1) | [plugx/](./plugx) |
+
+## AI Assistance
+
+This study was assisted by **Antigravity** (powered by the **Gemini 4 Carbon** model), an AI agent used to monitor, review, and refine the codebase for consistency, portability, and reproducibility while preserving the original analysis logic.
